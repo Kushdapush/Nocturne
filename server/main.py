@@ -5,6 +5,10 @@ import os
 import subprocess
 import time
 from fastapi.middleware.cors import CORSMiddleware
+import subprocess
+import shutil
+import re
+
 
 app = FastAPI()
 cap = None
@@ -106,3 +110,46 @@ def get_gemini_response():
                 yield "data: \n\n"
             time.sleep(1)
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@app.get("/system/battery")
+def get_battery_status():
+    """Get current battery status (level and charging state)"""
+    try:
+        # Check if we're running on Linux with available battery info
+        if shutil.which("upower"):
+            # Get battery info using upower
+            output = subprocess.check_output(
+                ["upower", "-i", "/org/freedesktop/UPower/devices/battery_BAT0"], 
+                universal_newlines=True
+            )
+            
+            # Extract percentage
+            percentage_match = re.search(r'percentage:\s+(\d+)%', output)
+            percentage = int(percentage_match.group(1)) if percentage_match else 50
+            
+            # Extract charging state
+            charging_match = re.search(r'state:\s+(\w+)', output)
+            charging_state = charging_match.group(1) if charging_match else "unknown"
+            is_charging = charging_state in ["charging", "fully-charged"]
+            
+            return {"level": percentage, "charging": is_charging}
+        
+        # Alternative for Raspberry Pi
+        elif shutil.which("vcgencmd"):
+            # Get power supply state
+            power_state = subprocess.check_output(
+                ["vcgencmd", "get_throttled"], 
+                universal_newlines=True
+            )
+            # This doesn't give percentage but can detect power issues
+            # Ideally, you'd implement a proper voltage/current measurement
+            # For now, just return a default value
+            return {"level": 80, "charging": True}
+        
+        # Fallback for development environments
+        else:
+            return {"level": 75, "charging": False}
+            
+    except Exception as e:
+        print(f"Error getting battery status: {e}")
+        return {"level": 50, "charging": False}
